@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"io"
 	"math/big"
 	"testing"
 	"time"
@@ -22,9 +23,8 @@ func TestTransport_E2E(t *testing.T) {
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
 
-	// TODO: Check how we can make sure quic-go closes without leaking
-	// report := test.CheckRoutines(t)
-	// defer report()
+	report := test.CheckRoutines(t)
+	defer report()
 
 	url := "localhost:50000"
 
@@ -46,11 +46,16 @@ func TestTransport_E2E(t *testing.T) {
 	awaitSetup := make(chan struct{})
 
 	var tb *Transport
+	var lisClose io.Closer
 	go func() {
+		defer close(srvErr)
+
 		var sErr error
-		tb, sErr = newServer(url, cfgB)
+		tb, lisClose, sErr = newServer(url, cfgB)
 		if sErr != nil {
+			t.Log("newServer err:", err)
 			srvErr <- sErr
+			return
 		}
 
 		tb.OnBidirectionalStream(func(stream *BidirectionalStream) {
@@ -63,8 +68,6 @@ func TestTransport_E2E(t *testing.T) {
 			t.Log("server rx", string(bts))
 			close(awaitSetup)
 		})
-
-		close(srvErr)
 	}()
 
 	ta, err := NewTransport(url, cfgA)
@@ -114,6 +117,8 @@ func TestTransport_E2E(t *testing.T) {
 			return
 		}
 	}
+
+	lisClose.Close()
 }
 
 func readLoop(s *BidirectionalStream, ch chan<- []byte) {

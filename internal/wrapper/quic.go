@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"net"
 
 	quic "github.com/lucas-clemente/quic-go"
@@ -118,12 +119,15 @@ func (s *Session) GetRemoteCertificates() []*x509.Certificate {
 
 // Close the connection
 func (s *Session) Close() error {
-	//s.s.Close() removed ?!
-	return nil
+	return s.CloseWithError(0, io.EOF)
 }
 
 // CloseWithError closes the connection with an error.
 // The error must not be nil.
 func (s *Session) CloseWithError(code uint16, err error) error {
-	return s.s.CloseWithError(quic.ErrorCode(code), err.Error())
+	var e string = "nil"
+	if err != nil {
+		e = err.Error()
+	}
+	return s.s.CloseWithError(quic.ErrorCode(code), e)
 }
