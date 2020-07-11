@@ -3,19 +3,23 @@
 package quic
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"math/big"
 	"testing"
 	"time"
 
 	"github.com/pion/transport/test"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestTransport_E2E(t *testing.T) {
@@ -47,7 +51,17 @@ func TestTransport_E2E(t *testing.T) {
 
 	var tb *Transport
 	var lisClose io.Closer
-	go func() {
+
+	var (
+		clientRx bytes.Buffer
+		clientTx bytes.Buffer // control buffer for comparison
+		serverRx bytes.Buffer
+
+		clientDone = make(chan struct{})
+		serverDone = make(chan struct{})
+	)
+
+	go func() { // server accept and read spawn
 		defer close(srvErr)
 
 		var sErr error
@@ -59,17 +73,13 @@ func TestTransport_E2E(t *testing.T) {
 		}
 
 		tb.OnBidirectionalStream(func(stream *BidirectionalStream) {
-			serverReceived := make(chan []byte)
+			go readLoop(stream, &serverRx, serverDone) // Read to pull incoming messages
 
-			go readLoop(stream, serverReceived) // Read to pull incoming messages
-
-			bts := <-serverReceived
-
-			t.Log("server rx", string(bts))
 			close(awaitSetup)
 		})
 	}()
 
+	// client dial and send/write
 	ta, err := NewTransport(url, cfgA)
 	if err != nil {
 		t.Fatal(err)
@@ -80,23 +90,58 @@ func TestTransport_E2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	clientReceived := make(chan []byte, 1)
-	go readLoop(stream, clientReceived) // Read to pull incoming messages
-
-	// Write to open stream
-	data := StreamWriteParameters{
-		Data: []byte("Hello"),
-	}
-	err = stream.Write(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	err = <-srvErr
 	if err != nil {
 		t.Fatal(err)
 	}
-	<-awaitSetup
+
+	// Read to pull incoming messages, should stay empty
+	go readLoop(stream, &clientRx, clientDone)
+
+	count := 512  // how many patterns to send
+	repeat := 128 // how often to repeat the testData pattern
+
+	// sent side
+	var buf [2]byte
+	for i := 0; i < count; i++ {
+		testData := bytes.Repeat([]byte(fmt.Sprintf("%04d", i)), repeat)
+		binary.BigEndian.PutUint16(buf[:], uint16(i))
+		msg := append(testData, buf[0], buf[1])
+
+		clientTx.Write(msg)
+
+		data := StreamWriteParameters{Data: msg}
+		if i == count-1 {
+			data.Finished = true
+			t.Log("final frame")
+		}
+		err = stream.Write(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log("sent", i)
+	}
+
+	<-serverDone
+
+	t.Log("read all data from stream")
+
+	wantBytes := count * (4*repeat + 2)
+	if n := clientTx.Len(); n != wantBytes {
+		t.Errorf("expected %d got %d bytes in sent buffer", wantBytes, n)
+	}
+	if n := serverRx.Len(); n != wantBytes {
+		t.Errorf("expected %d got %d bytes in receive buffer", wantBytes, n)
+	}
+	if nTx, nRx := clientTx.Len(), serverRx.Len(); nTx != nRx {
+		diff := nTx - nRx
+		t.Errorf("tx(%d) and rx(%d) buffers not equal (diff: %d)", nTx, nRx, diff)
+		assert.Equal(t, clientTx.Bytes(), serverRx.Bytes())
+	}
+
+	if clientRx.Len() != 0 {
+		t.Errorf("client received data although nothing was sent")
+	}
 
 	err = ta.Stop(TransportStopInfo{})
 	if err != nil {
@@ -108,28 +153,22 @@ func TestTransport_E2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	select {
-	case <-time.After(5 * time.Second):
-		t.Error("close timeout..")
-	case buf, more := <-clientReceived:
-		if more {
-			t.Errorf("read message from server: %x", buf)
-			return
-		}
-	}
-
+	<-clientDone
 	lisClose.Close()
 }
 
-func readLoop(s *BidirectionalStream, ch chan<- []byte) {
+func readLoop(s *BidirectionalStream, buf *bytes.Buffer, done chan<- struct{}) {
+	var bufSz = 1024
+	buffer := make([]byte, bufSz)
 	for {
-		buffer := make([]byte, 15)
-		_, err := s.ReadInto(buffer)
-		if err != nil {
-			close(ch)
+		res, err := s.ReadInto(buffer)
+		buf.Write(buffer[:res.Amount])
+		if err != nil || res.Finished {
+			fmt.Printf("received err: %v (along with %d bytes)\n", res.Amount, err)
+			close(done)
 			return
 		}
-		ch <- buffer
+		buffer = buffer[:bufSz]
 	}
 }
 
