@@ -2,7 +2,6 @@ package wrapper
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net"
 
@@ -27,12 +26,11 @@ func (s *Stream) ReadQuic(p []byte) (int, bool, error) {
 		if errors.Is(err, io.EOF) {
 			fin = true
 		} else {
-			if ne, ok := err.(net.Error); ok && !ne.Timeout() {
-				fin = true
+			if ne, ok := err.(net.Error); ok {
+				fin = !ne.Timeout()
 			} else {
-				// TODO determine if closed
-				fmt.Println("[quic debug] read error: %T %+v", err, err)
-				// seriously, which error isn't fin=true but timeout?
+				// which error isn't fin=true but timeout?
+				fin = true
 			}
 		}
 	}

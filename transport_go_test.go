@@ -108,23 +108,19 @@ func TestTransport_E2E(t *testing.T) {
 		binary.BigEndian.PutUint16(buf[:], uint16(i))
 		msg := append(testData, buf[0], buf[1])
 
-		clientTx.Write(msg)
+		_, _ = clientTx.Write(msg) // writing to a buffer never fails (hi golint)
 
 		data := StreamWriteParameters{Data: msg}
 		if i == count-1 {
 			data.Finished = true
-			t.Log("final frame")
 		}
 		err = stream.Write(data)
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Log("sent", i)
 	}
 
 	<-serverDone
-
-	t.Log("read all data from stream")
 
 	wantBytes := count * (4*repeat + 2)
 	if n := clientTx.Len(); n != wantBytes {
@@ -154,17 +150,16 @@ func TestTransport_E2E(t *testing.T) {
 	}
 
 	<-clientDone
-	lisClose.Close()
+	assert.NoError(t, lisClose.Close())
 }
 
-func readLoop(s *BidirectionalStream, buf *bytes.Buffer, done chan<- struct{}) {
+func readLoop(s *BidirectionalStream, buf io.Writer, done chan<- struct{}) {
 	var bufSz = 1024
 	buffer := make([]byte, bufSz)
 	for {
 		res, err := s.ReadInto(buffer)
-		buf.Write(buffer[:res.Amount])
+		_, _ = buf.Write(buffer[:res.Amount])
 		if err != nil || res.Finished {
-			fmt.Printf("received err: %v (along with %d bytes)\n", res.Amount, err)
 			close(done)
 			return
 		}

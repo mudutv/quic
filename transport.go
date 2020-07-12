@@ -50,7 +50,7 @@ func newServer(url string, config *Config) (*Transport, io.Closer, error) {
 
 	s, err := l.Accept()
 	if err != nil {
-		l.Close()
+		_ = l.Close()
 		return nil, nil, err
 	}
 

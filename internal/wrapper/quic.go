@@ -36,7 +36,7 @@ func Client(conn net.Conn, config *Config) (*Session, error) {
 	tlscfg := getTLSConfig(config)
 	rAddr := conn.RemoteAddr()
 	if rAddr == nil {
-		return nil, fmt.Errorf("creating client to nowhere!")
+		return nil, fmt.Errorf("quic: creating client without remote address")
 	}
 	s, err := quic.Dial(newFakePacketConn(conn), rAddr, rAddr.String(), tlscfg, getDefaultQuicConfig())
 	if err != nil {
@@ -125,7 +125,7 @@ func (s *Session) Close() error {
 // CloseWithError closes the connection with an error.
 // The error must not be nil.
 func (s *Session) CloseWithError(code uint16, err error) error {
-	var e string = "nil"
+	var e = "nil"
 	if err != nil {
 		e = err.Error()
 	}

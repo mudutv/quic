@@ -44,15 +44,3 @@ func (c *fakePacketConn) SetReadDeadline(t time.Time) error {
 func (c *fakePacketConn) SetWriteDeadline(t time.Time) error {
 	return c.c.SetWriteDeadline(t)
 }
-
-type fakeAddr struct {
-	ID string
-}
-
-func (a *fakeAddr) Network() string {
-	return "WebRTC"
-}
-
-func (a *fakeAddr) String() string {
-	return "fakeAddr:" + a.ID
-}
