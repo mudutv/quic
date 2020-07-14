@@ -3,8 +3,8 @@
 package quic
 
 import (
-	"github.com/pion/logging"
-	"github.com/pion/quic/internal/wrapper"
+	"github.com/mudutv/logging"
+	"github.com/mudutv/quic/internal/wrapper"
 )
 
 // Transport is a quic transport focused on client/server use cases.

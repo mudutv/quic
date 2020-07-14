@@ -7,8 +7,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/pion/logging"
-	"github.com/pion/quic/internal/wrapper"
+	"github.com/mudutv/logging"
+	"github.com/mudutv/quic/internal/wrapper"
 )
 
 // TransportBase is the base for Transport. Most of the
