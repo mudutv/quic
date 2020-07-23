@@ -33,6 +33,12 @@ type Config struct {
 // should instead use the methods on quic.Transport or
 // webrtc.QUICTransport to setup a Quic connection.
 func (b *TransportBase) StartBase(conn net.Conn, config *Config) error {
+	lf := config.LoggerFactory
+	if lf == nil {
+		lf = logging.NewDefaultLoggerFactory()
+	}
+	b.log = lf.NewLogger("quic-wrapper")
+
 	cfg := config.clone()
 	cfg.SkipVerify = true // Using self signed certificates; WebRTC will check the fingerprint
 
@@ -112,7 +118,12 @@ func (b *TransportBase) acceptStreams() {
 		s, err := b.session.AcceptStream()
 		if err != nil {
 			b.log.Errorf("Failed to accept stream: %v", err)
-			// TODO: Kill TransportBase?
+			stopErr := b.Stop(TransportStopInfo{
+				Reason: err.Error(),
+			})
+			if stopErr != nil {
+				b.log.Errorf("Failed to stop transport: %v", stopErr)
+			}
 			return
 		}
 
